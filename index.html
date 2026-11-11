@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HN</title>
+<style>
+/* Layout: newspaper. Centered masthead + hairline nav; list pages are a lead story (text left, image right)
+   with a sidebar and four columns below, items divided by hairlines only; the item page is a single column
+   with an indented comment thread */
+:root {
+  --bg: #ffffff;
+  --fg: #141414;
+  --muted: #5a5a5a;
+  --line: #e2e2e2;
+  --shine: #f4f4f4;
+  --accent: #e8590c;
+  --serif: Georgia, "Times New Roman", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121212;
+    --fg: #ededed;
+    --muted: #a3a3a3;
+    --line: #2e2e2e;
+    --shine: #444444;
+    --accent: #ff8a3d;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; }
+
+.mast { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; padding: 20px 24px; border-bottom: 1px solid var(--line); }
+#q { font: inherit; color: inherit; width: 180px; padding: 6px 0; background: none; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; outline: 0; }
+#q:focus { border-bottom-color: var(--fg); }
+.brand { display: flex; gap: 5px; }
+.brand b { display: grid; place-items: center; width: 38px; height: 38px; background: var(--fg); color: var(--bg); font: 800 26px/1 var(--sans); }
+.side { justify-self: end; display: flex; align-items: center; gap: 16px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#refresh { font-weight: 700; color: var(--bg); background: var(--fg); padding: 8px 16px; border: 1px solid var(--fg); }
+nav { display: flex; justify-content: center; gap: 22px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+nav a { font-weight: 700; padding: 11px 0 9px; border-bottom: 3px solid transparent; white-space: nowrap; }
+nav a:hover, nav a[aria-current] { border-bottom-color: var(--accent); }
+
+main { max-width: 1280px; margin: 0 auto; padding: 28px 24px 96px; }
+h1 { margin: 0 0 36px; text-align: center; font: 800 34px/1.1 var(--sans); color: var(--accent); overflow-wrap: anywhere; }
+#sub, .hsub { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: -16px auto 36px; max-width: 640px; font-size: 14px; color: var(--muted); }
+#sub:empty { display: none; }
+#sub .days { display: flex; align-items: center; gap: 16px; }
+#sub a:hover, #clear:hover { color: var(--fg); text-decoration: underline; }
+#sub input { font: inherit; color: var(--fg); background: none; border: 1px solid var(--line); padding: 4px 8px; }
+#more { display: block; margin: 44px auto 0; padding: 10px 32px; font-weight: 700; border: 1px solid var(--fg); }
+#more:disabled { opacity: .4; }
+
+/* Loading placeholders: a highlight sweeps left to right across grey bars */
+.sk > * { display: block; height: 18px; background: linear-gradient(90deg, var(--line) 30%, var(--shine) 50%, var(--line) 70%) 0 0 / 300% 100%; animation: slide 1.3s linear infinite; }
+.sk > .pic { height: auto; }
+.sk > .s { height: 11px; }
+#lead .sk > :not(.pic, .s), #itemView .sk > :not(.s) { height: 30px; }
+@keyframes slide { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+.item { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.item .pic { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--line); }
+.item h2 { margin: 0; font: 700 19px/1.3 var(--serif); overflow-wrap: anywhere; }
+.item h2 a:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* Dividers sit on the left of each entry and overflow one step left, so the one at the start of a wrapped line is clipped */
+.meta { display: flex; flex-wrap: wrap; row-gap: 6px; overflow: hidden; margin-top: 2px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.meta > * { margin: 0 21px 0 -11px; padding-left: 10px; border-left: 1px solid var(--muted); line-height: 1.1; white-space: nowrap; }
+.meta a:hover { color: var(--fg); text-decoration: underline; }
+
+#top { display: grid; gap: 24px; margin-bottom: 40px; }
+#aside { display: flex; flex-direction: column; gap: 16px; }
+#aside .item:not(:first-child) .pic { display: none; }
+#rest { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 32px 18px; }
+
+@media (min-width: 1000px) {
+  /* The lead area closes with a bottom rule and a vertical rule against the sidebar; the image stretches to the sidebar height, text is vertically centered */
+  #top { grid-template-columns: 3fr 1fr; padding-bottom: 32px; border-bottom: 1px solid var(--line); }
+  #aside { padding-left: 24px; border-left: 1px solid var(--line); }
+  #aside .item:last-child { padding-bottom: 0; border-bottom: 0; }
+  #lead { display: grid; }
+  #lead .item { display: grid; grid-template-columns: 1fr 2fr; grid-template-rows: 1fr auto auto 1fr; gap: 10px 24px; min-height: 340px; border-bottom: 0; padding: 0; }
+  #lead .item h2 { grid-area: 2 / 1; }
+  #lead .item .meta { grid-area: 3 / 1; }
+  #lead .item .pic { grid-area: 1 / 2 / -1 / 2; aspect-ratio: auto; height: 0; min-height: 100%; }
+  #lead .item:not(:has(.pic)) { display: flex; justify-content: center; }
+  #lead .sk > i { grid-column: 1; }
+  #rest { grid-template-columns: repeat(4, 1fr); }
+}
+#lead .item h2, #itemView > .item h2 { font-size: clamp(24px, 2.4vw, 32px); line-height: 1.2; overflow-wrap: break-word; }
+
+/* Item page */
+#itemView { max-width: 780px; margin: 0 auto; }
+#itemView > .item { padding-bottom: 24px; }
+.prose { font: 16px/1.6 var(--serif); overflow-wrap: anywhere; }
+.prose p { margin: .7em 0 0; }
+.prose a { text-decoration: underline; text-underline-offset: 2px; }
+.prose pre { overflow-x: auto; padding: 12px; border: 1px solid var(--line); font: 13px/1.5 var(--mono); }
+.prose code { font-family: var(--mono); font-size: .88em; }
+#itemView > .prose { padding: 20px 0; border-bottom: 1px solid var(--line); }
+#itemView h3 { margin: 28px 0 8px; font: 800 15px/1 var(--sans); color: var(--accent); }
+.c { padding-top: 16px; }
+.c > summary { display: flex; gap: 10px; align-items: baseline; list-style: none; cursor: pointer; font-size: 12.5px; color: var(--muted); }
+.c > summary::-webkit-details-marker { display: none; }
+.c > summary::before { content: "+"; width: 8px; font-family: var(--mono); }
+.c[open] > summary::before { content: "–"; }
+.c > summary a { font-weight: 700; color: var(--fg); }
+.c > summary a:hover { text-decoration: underline; }
+.c > .prose { margin-top: 4px; padding-left: 18px; }
+.kids { margin-left: 3px; padding-left: 14px; border-left: 1px solid var(--line); }
+
+/* History page: single column, grouped by the day each story was opened */
+#historyView { max-width: 780px; margin: 0 auto; }
+#historyView h3 { margin: 32px 0 0; padding-bottom: 8px; border-bottom: 1px solid var(--fg); font: 800 12px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; }
+#historyView .item { padding: 14px 0; }
+#historyView .item h2 { font-size: 18px; }
+#clear { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+/* Stories already opened are greyed in lists, like visited links on HN */
+.seen h2 a { color: var(--muted); }
+
+/* Back to top: appears once the page has scrolled past one and a half screens */
+#toTop { position: fixed; right: calc(24px + env(safe-area-inset-right, 0px)); bottom: calc(24px + env(safe-area-inset-bottom, 0px)); z-index: 6; width: 44px; height: 44px; display: grid; place-items: center; background: var(--fg); color: var(--bg); font: 700 20px/1 var(--sans); opacity: 0; visibility: hidden; transition: opacity .2s, visibility .2s; }
+#toTop.on { opacity: 1; visibility: visible; }
+
+@media (prefers-reduced-motion: reduce) { .sk > * { animation: none; } #toTop { transition: none; } }
+@media (max-width: 640px) {
+  .mast { grid-template-columns: auto 1fr; padding: 14px 16px; }
+  #search { grid-area: 2 / 1 / 3 / -1; }
+  #q { width: 100%; }
+  nav { justify-content: flex-start; padding: 0 16px; }
+  main { padding-inline: 16px; }
+  .kids { padding-left: 8px; }
+  #toTop { right: calc(16px + env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="mast">
+    <form id="search" role="search"><input id="q" type="search" placeholder="Search" aria-label="Search"></form>
+    <a class="brand" href="#top" aria-label="HN"><b>H</b><b>N</b></a>
+    <div class="side"><span id="status"></span><button id="refresh">Refresh</button></div>
+  </div>
+  <nav id="tabs">
+    <a href="#top">Top</a>
+    <a href="#new">New</a>
+    <a href="#best">Best</a>
+    <a href="#show">Show</a>
+    <a href="#ask">Ask</a>
+    <a href="#jobs">Jobs</a>
+    <a href="#past">Past</a>
+    <a href="#history">History</a>
+  </nav>
+</header>
+<main>
+  <div id="listView">
+    <h1 id="heading"></h1>
+    <div id="sub"></div>
+    <section id="top"><div id="lead"></div><div id="aside"></div></section>
+    <div id="rest"></div>
+    <button id="more" hidden>More</button>
+  </div>
+  <div id="itemView" hidden></div>
+  <div id="historyView" hidden></div>
+</main>
+<button id="toTop" aria-label="Back to top">↑</button>
+<script>
+const A = 'https://hn.algolia.com/api/v1/';
+const FB = 'https://hacker-news.firebaseio.com/v0/';
+const PAGE = 30;
+// These lists use HN's own ranking: fetch the id list first, then the details in one batch
+const RANKED = { top: 'topstories', best: 'beststories', show: 'showstories', ask: 'askstories' };
+const $ = id => document.getElementById(id);
+const getJSON = async url => {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(res.status);
+  return res.json();
+};
+const status = $('status');
+const images = {};
+let view, arg, gen = 0, page = 0, ids = [], stories = [];
+
+// Reading history lives in this browser only; newest first, capped at 1000 stories
+const READS_KEY = 'hn-history';
+let reads = [];
+try { reads = JSON.parse(localStorage.getItem(READS_KEY)) || []; } catch {}
+const seen = new Set(reads.map(r => r.objectID));
+
+function remember(s) {
+  const entry = { objectID: s.objectID, title: s.title, url: s.url, points: s.points, num_comments: s.num_comments, created_at_i: s.created_at_i, seenAt: Date.now() };
+  reads = [entry, ...reads.filter(r => r.objectID !== s.objectID)].slice(0, 1000);
+  seen.add(s.objectID);
+  try { localStorage.setItem(READS_KEY, JSON.stringify(reads)); } catch {}
+}
+
+function dayLabel(t) {
+  const day = new Date(t).toDateString();
+  if (day === new Date().toDateString()) return 'Today';
+  if (day === new Date(Date.now() - 864e5).toDateString()) return 'Yesterday';
+  return new Date(t).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+function ago(sec) {
+  const m = Math.floor((Date.now() / 1000 - sec) / 60);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + ' min ago';
+  if (m < 1440) return Math.floor(m / 60) + ' hr ago';
+  if (m < 525600) return Math.floor(m / 1440) + ' d ago';
+  return Math.floor(m / 525600) + ' yr ago';
+}
+
+// The Buzzing feed carries an article image for many stories, keyed by HN id
+async function loadBuzzing() {
+  const { items } = await getJSON('https://hn.buzzing.cc/feed.json');
+  for (const it of items) {
+    const id = it.id.match(/(\d+)\/$/)?.[1];
+    if (id && it.image) images[id] = it.image;
+  }
+}
+
+async function fetchPage() {
+  if (RANKED[view]) {
+    if (!page) ids = await getJSON(FB + RANKED[view] + '.json');
+    const slice = ids.slice(page * PAGE, (page + 1) * PAGE);
+    const { hits } = await getJSON(`${A}search?hitsPerPage=${PAGE}&tags=(story,job,poll),(${slice.map(i => 'story_' + i).join(',')})`);
+    const byId = Object.fromEntries(hits.map(h => [h.objectID, h]));
+    return { list: slice.map(i => byId[i]).filter(Boolean), more: ids.length > (page + 1) * PAGE };
+  }
+  const day = Date.parse(arg) / 1000;
+  const query = {
+    new: 'search_by_date?tags=story',
+    jobs: 'search_by_date?tags=job',
+    past: `search?tags=story&numericFilters=created_at_i>=${day},created_at_i<${day + 86400}`,
+    search: 'search?tags=story&query=' + encodeURIComponent(arg),
+    site: 'search_by_date?tags=story&restrictSearchableAttributes=url&query=' + encodeURIComponent(arg),
+    user: 'search_by_date?tags=story,author_' + encodeURIComponent(arg),
+  }[view];
+  if (!query) throw new Error('unknown view');
+  const res = await getJSON(`${A}${query}&hitsPerPage=${PAGE}&page=${page}`);
+  return { list: res.hits.filter(s => s.title), more: page + 1 < res.nbPages };
+}
+
+// mode 'full': the entry at the top of the item page, which also shows the author and a link to HN
+// mode 'history': an entry on the History page, which shows when it was opened
+function item(s, mode) {
+  const full = mode === 'full';
+  const hn = 'https://news.ycombinator.com/item?id=' + s.objectID;
+  const el = document.createElement('article');
+  el.className = !mode && seen.has(s.objectID) ? 'item seen' : 'item';
+  el.innerHTML = '<h2><a></a></h2><div class="meta"></div>';
+  const title = el.querySelector('h2 a');
+  title.textContent = s.title;
+  title.addEventListener('click', () => {
+    remember(s);
+    el.classList.toggle('seen', !mode);
+  });
+  if (s.url) {
+    title.href = s.url;
+    title.target = '_blank';
+    title.rel = 'noopener';
+  } else {
+    title.href = '#item/' + s.objectID;
+  }
+  const meta = el.querySelector('.meta');
+  const add = (text, href) => {
+    const e = document.createElement(href ? 'a' : 'span');
+    e.textContent = text;
+    if (href) e.href = href;
+    meta.append(e);
+    return e;
+  };
+  add(mode === 'history' ? 'Opened ' + new Date(s.seenAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ago(s.created_at_i));
+  if (s.url) {
+    const host = new URL(s.url).hostname.replace(/^www\./, '');
+    add(host, '#site/' + host);
+  }
+  if (s.points != null) add('▲ ' + s.points);
+  if (full) {
+    add(s.author, '#user/' + s.author);
+    add('Open on HN ↗', hn).target = '_blank';
+  } else if (s.num_comments != null) {
+    add(s.num_comments + ' comments', '#item/' + s.objectID);
+  }
+  // Show an image only when the article has one; drop it if it fails to load
+  if (images[s.objectID] && !mode) {
+    const img = new Image();
+    img.className = 'pic';
+    img.referrerPolicy = 'no-referrer';
+    img.alt = '';
+    img.onerror = () => img.remove();
+    img.src = images[s.objectID];
+    el.prepend(img);
+  }
+  return el;
+}
+
+function comment(c) {
+  if (!c.text && !c.children.length) return '';
+  const el = document.createElement('details');
+  el.className = 'c';
+  el.open = true;
+  el.innerHTML = '<summary><a></a><time></time></summary><div class="prose"></div>';
+  const author = el.querySelector('a');
+  author.textContent = c.author || '[deleted]';
+  if (c.author) author.href = '#user/' + c.author;
+  el.querySelector('time').textContent = ago(c.created_at_i);
+  el.querySelector('.prose').innerHTML = c.text || '';
+  if (c.children.length) {
+    const kids = document.createElement('div');
+    kids.className = 'kids';
+    kids.append(...c.children.map(comment));
+    el.append(kids);
+  }
+  return el;
+}
+
+function render() {
+  if (!stories.length) return;
+  if (view === 'item') return $('itemView').firstElementChild.replaceWith(item(stories[0], 'full'));
+  $('lead').replaceChildren(...stories.slice(0, 1).map(s => item(s)));
+  $('aside').replaceChildren(...stories.slice(1, 4).map(s => item(s)));
+  $('rest').replaceChildren(...stories.slice(4).map(s => item(s)));
+}
+
+async function showList(mine) {
+  page = 0;
+  $('heading').textContent = view === 'search' ? `“${arg}”` : $('tabs').querySelector('[aria-current]')?.textContent.toUpperCase() || arg;
+  $('more').hidden = true;
+  $('sub').replaceChildren();
+  const lines = '<i style="width:92%"></i><i style="width:64%"></i><i class="s" style="width:45%"></i></div>';
+  const withPic = '<div class="item sk"><div class="pic"></div>' + lines;
+  $('lead').innerHTML = withPic;
+  $('aside').innerHTML = ('<div class="item sk">' + lines).repeat(3);
+  $('rest').innerHTML = withPic.repeat(8);
+  if (view === 'past') {
+    const shift = d => new Date(Date.parse(arg) + d * 864e5).toISOString().slice(0, 10);
+    $('sub').innerHTML = `<div class="days"><a href="#past/${shift(-1)}">‹ Previous day</a><input id="date" type="date" aria-label="Date" value="${arg}"><a href="#past/${shift(1)}">Next day ›</a></div>`;
+    $('date').onchange = e => location.hash = 'past/' + e.target.value;
+  }
+  if (view === 'user') {
+    getJSON(A + 'users/' + encodeURIComponent(arg)).then(u => {
+      if (mine !== gen) return;
+      $('sub').innerHTML = '<span></span><div class="prose"></div>';
+      $('sub').firstChild.textContent = 'karma ' + u.karma;
+      $('sub').lastChild.innerHTML = u.about || '';
+    }, () => {});
+  }
+  const { list, more } = await fetchPage();
+  if (mine !== gen) return;
+  for (const id of ['lead', 'aside', 'rest']) $(id).replaceChildren();
+  if (!list.length) $('rest').textContent = 'Nothing here.';
+  stories = list;
+  render();
+  $('more').hidden = !more;
+}
+
+async function showItem(mine) {
+  $('itemView').innerHTML = '<div class="item sk"><i style="width:85%"></i><i class="s" style="width:40%"></i></div>'
+    + '<div class="item sk" style="margin-top:24px"><i class="s" style="width:95%"></i><i class="s" style="width:88%"></i><i class="s" style="width:60%"></i></div>'.repeat(5);
+  const it = await getJSON(A + 'items/' + encodeURIComponent(arg));
+  if (mine !== gen) return;
+  const count = c => c.children.reduce((n, k) => n + 1 + count(k), 0);
+  stories = [{ objectID: String(it.id), title: it.title || 'Comment', url: it.url, points: it.points, author: it.author, created_at_i: it.created_at_i }];
+  const text = document.createElement('div');
+  text.className = 'prose';
+  text.innerHTML = it.text || '';
+  text.hidden = !it.text;
+  const heading = document.createElement('h3');
+  heading.textContent = count(it) + ' comments';
+  $('itemView').replaceChildren(item(stories[0], 'full'), text, heading, ...it.children.map(comment));
+  if (it.title) remember({ ...stories[0], num_comments: count(it) });
+  for (const a of $('itemView').querySelectorAll('.prose a')) {
+    a.target = '_blank';
+    a.rel = 'noopener';
+  }
+}
+
+function showHistory() {
+  const h1 = document.createElement('h1');
+  h1.textContent = 'HISTORY';
+  const sub = document.createElement('div');
+  sub.className = 'hsub';
+  const parts = [h1, sub];
+  if (!reads.length) {
+    sub.textContent = 'Stories you open will be listed here.';
+  } else {
+    sub.innerHTML = '<span></span><button id="clear">Clear history</button>';
+    sub.firstChild.textContent = `${reads.length} ${reads.length === 1 ? 'story' : 'stories'}, saved in this browser`;
+    let last;
+    for (const r of reads) {
+      const label = dayLabel(r.seenAt);
+      if (label !== last) {
+        const h = document.createElement('h3');
+        h.textContent = last = label;
+        parts.push(h);
+      }
+      parts.push(item(r, 'history'));
+    }
+  }
+  $('historyView').replaceChildren(...parts);
+  if (reads.length) $('clear').onclick = () => {
+    if (!confirm('Clear your reading history?')) return;
+    reads = [];
+    seen.clear();
+    try { localStorage.removeItem(READS_KEY); } catch {}
+    showHistory();
+  };
+}
+
+async function route() {
+  const [v, ...rest] = location.hash.slice(1).split('/');
+  view = v || 'top';
+  arg = decodeURIComponent(rest.join('/'));
+  // The Past date goes into the API query and the page, so accept only YYYY-MM-DD and fall back to yesterday
+  if (view === 'past' && !/^\d{4}-\d{2}-\d{2}$/.test(arg)) arg = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  const mine = ++gen;
+  stories = [];
+  for (const a of $('tabs').children) a.hash === '#' + view ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current');
+  $('listView').hidden = view === 'item' || view === 'history';
+  $('itemView').hidden = view !== 'item';
+  $('historyView').hidden = view !== 'history';
+  scrollTo(0, 0);
+  if (view === 'history') {
+    status.textContent = '';
+    return showHistory();
+  }
+  status.textContent = 'Loading…';
+  try {
+    await (view === 'item' ? showItem(mine) : showList(mine));
+    if (mine === gen) status.textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    if (mine !== gen) return;
+    for (const id of ['lead', 'aside', 'rest', 'itemView']) $(id).replaceChildren();
+    status.textContent = 'Failed to load';
+  }
+}
+
+$('more').onclick = async () => {
+  const mine = gen;
+  $('more').disabled = true;
+  page++;
+  try {
+    const { list, more } = await fetchPage();
+    if (mine !== gen) return;
+    stories = stories.concat(list);
+    render();
+    $('more').hidden = !more;
+  } catch {
+    page--;
+    status.textContent = 'Failed to load';
+  } finally {
+    $('more').disabled = false;
+  }
+};
+$('search').onsubmit = e => {
+  e.preventDefault();
+  const q = $('q').value.trim();
+  if (q) location.hash = 'search/' + encodeURIComponent(q);
+};
+$('refresh').onclick = route;
+addEventListener('scroll', () => $('toTop').classList.toggle('on', scrollY > innerHeight * 1.5), { passive: true });
+$('toTop').onclick = () => scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+addEventListener('hashchange', route);
+// Images never block first paint: render the list first, fill images in when the feed arrives
+loadBuzzing().then(render, () => {});
+route();
+</script>
+</body>
+</html>
