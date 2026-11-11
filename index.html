@@ -32,6 +32,8 @@
   }
 }
 * { box-sizing: border-box; }
+/* Elements with their own display (like the More button) must still disappear when hidden */
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
 a { color: inherit; text-decoration: none; }
 :focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
@@ -55,6 +57,9 @@ h1 { margin: 0 0 36px; text-align: center; font: 800 34px/1.1 var(--sans); color
 #sub .days { display: flex; align-items: center; gap: 16px; }
 #sub a:hover, #clear:hover { color: var(--fg); text-decoration: underline; }
 #sub input { font: inherit; color: var(--fg); background: none; border: 1px solid var(--line); padding: 4px 8px; }
+/* Empty and error states sit in the middle of the content area */
+.empty { grid-column: 1 / -1; margin: 0; padding: 48px 0; text-align: center; color: var(--muted); }
+#top:not(:has(.item)) { display: none; }
 #more { display: block; margin: 44px auto 0; padding: 10px 32px; font-weight: 700; border: 1px solid var(--fg); }
 #more:disabled { opacity: .4; }
 
@@ -176,9 +181,18 @@ const FB = 'https://hacker-news.firebaseio.com/v0/';
 const PAGE = 30;
 // These lists use HN's own ranking: fetch the id list first, then the details in one batch
 const RANKED = { top: 'topstories', best: 'beststories', show: 'showstories', ask: 'askstories' };
+// HN's ranking comes from Firebase, which some networks block. If it fails once, use Algolia's
+// popularity order for the rest of the visit so every page and every "More" comes from one source.
+const UNRANKED = {
+  top: 'search?tags=front_page',
+  best: () => 'search?tags=story&numericFilters=created_at_i>' + (Math.floor(Date.now() / 1000) - 7 * 86400),
+  show: 'search?tags=show_hn',
+  ask: 'search?tags=ask_hn',
+};
+let rankedOK = true;
 const $ = id => document.getElementById(id);
 const getJSON = async url => {
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(res.status);
   return res.json();
 };
@@ -225,15 +239,24 @@ async function loadBuzzing() {
 }
 
 async function fetchPage() {
-  if (RANKED[view]) {
-    if (!page) ids = await getJSON(FB + RANKED[view] + '.json');
+  if (RANKED[view] && rankedOK) {
+    if (!page) {
+      try {
+        ids = await getJSON(FB + RANKED[view] + '.json');
+      } catch {
+        rankedOK = false;
+        return fetchPage();
+      }
+    }
     const slice = ids.slice(page * PAGE, (page + 1) * PAGE);
     const { hits } = await getJSON(`${A}search?hitsPerPage=${PAGE}&tags=(story,job,poll),(${slice.map(i => 'story_' + i).join(',')})`);
     const byId = Object.fromEntries(hits.map(h => [h.objectID, h]));
     return { list: slice.map(i => byId[i]).filter(Boolean), more: ids.length > (page + 1) * PAGE };
   }
   const day = Date.parse(arg) / 1000;
+  const fallback = UNRANKED[view];
   const query = {
+    ...(fallback && { [view]: typeof fallback === 'function' ? fallback() : fallback }),
     new: 'search_by_date?tags=story',
     jobs: 'search_by_date?tags=job',
     past: `search?tags=story&numericFilters=created_at_i>=${day},created_at_i<${day + 86400}`,
@@ -354,7 +377,7 @@ async function showList(mine) {
   const { list, more } = await fetchPage();
   if (mine !== gen) return;
   for (const id of ['lead', 'aside', 'rest']) $(id).replaceChildren();
-  if (!list.length) $('rest').textContent = 'Nothing here.';
+  if (!list.length) $('rest').innerHTML = '<p class="empty">Nothing here.</p>';
   stories = list;
   render();
   $('more').hidden = !more;
@@ -437,6 +460,8 @@ async function route() {
   } catch {
     if (mine !== gen) return;
     for (const id of ['lead', 'aside', 'rest', 'itemView']) $(id).replaceChildren();
+    $('more').hidden = true;
+    $(view === 'item' ? 'itemView' : 'rest').innerHTML = '<p class="empty">Couldn’t reach Hacker News. Check your connection, then press Refresh.</p>';
     status.textContent = 'Failed to load';
   }
 }
